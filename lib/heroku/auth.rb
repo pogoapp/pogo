@@ -178,7 +178,7 @@ class Heroku::Auth
     end
 
     def ask_for_credentials
-      puts "Enter your Heroku credentials."
+      puts "Enter your #{host_name} credentials."
 
       print "Email: "
       user = ask

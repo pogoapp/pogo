@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    heroku (2.31.2)
+    pogo (2.31.2)
       heroku-api (~> 0.3.5)
       launchy (>= 0.3.2)
       netrc (~> 0.7.7)
@@ -70,9 +70,9 @@ DEPENDENCIES
   aws-s3
   fakefs
   fpm
-  heroku!
   jruby-openssl
   json
+  pogo!
   rake (>= 0.8.7)
   rr (~> 1.0.2)
   rspec (>= 2.0)

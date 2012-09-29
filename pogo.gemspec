@@ -2,19 +2,18 @@ $:.unshift File.expand_path("../lib", __FILE__)
 require "heroku/version"
 
 Gem::Specification.new do |gem|
-  gem.name    = "heroku"
+  gem.name    = "pogo"
   gem.version = Heroku::VERSION
 
   gem.author      = "Heroku"
-  gem.email       = "support@heroku.com"
-  gem.homepage    = "http://heroku.com/"
-  gem.summary     = "Client library and CLI to deploy apps on Heroku."
-  gem.description = "Client library and command-line tool to deploy and manage apps on Heroku."
-  gem.executables = "heroku"
+  gem.email       = "support@pogoapp.com"
+  gem.homepage    = "http://pogoapp.com/"
+  gem.summary     = "Client library and CLI to deploy apps on Pogoapp."
+  gem.description = "Client library and command-line tool to deploy and manage apps on Pogoapp."
+  gem.executables = "pogo"
   gem.license     = "MIT"
   gem.post_install_message = <<-MESSAGE
- !    Heroku recommends using the Heroku Toolbelt to install the CLI.
- !    Download it from: https://toolbelt.heroku.com
+ !    Thanks for trying the Pogoapp beta!
   MESSAGE
 
   gem.files = %x{ git ls-files }.split("\n").select { |d| d =~ %r{^(License|README|bin/|data/|ext/|lib/|spec/|test/)} }

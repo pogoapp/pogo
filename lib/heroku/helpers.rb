@@ -25,6 +25,10 @@ module Heroku
         $stdout.flush
       end
     end
+    
+    def host_name
+      'Pogoapp'
+    end
 
     def redisplay(line, line_break = false)
       display("\r\e[0K#{line}", line_break)

@@ -1,6 +1,12 @@
 #!/usr/bin/env ruby
 # encoding: UTF-8
 
+# pogo defaults
+ENV['HEROKU_HOST']        ||= 'http://api.pogoapp.com'
+ENV['HEROKU_STATUS_HOST'] ||= 'http://status.pogoapp.com'
+ENV['HEROKU_SSL_VERIFY']  ||= 'disable'
+ENV['HEROKU_GIT_HOST']    ||= 'git.pogoapp.com'
+
 # resolve bin path, ignoring symlinks
 require "pathname"
 bin_file = Pathname.new(__FILE__).realpath
