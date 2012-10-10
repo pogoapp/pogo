@@ -2,9 +2,8 @@
 # encoding: UTF-8
 
 # pogo defaults
-ENV['HEROKU_HOST']        ||= 'http://api.pogoapp.com'
-ENV['HEROKU_STATUS_HOST'] ||= 'http://status.pogoapp.com'
-ENV['HEROKU_SSL_VERIFY']  ||= 'disable'
+ENV['HEROKU_HOST']        ||= 'pogoapp.com'
+ENV['HEROKU_STATUS_HOST'] ||= 'status.pogoapp.com'
 ENV['HEROKU_GIT_HOST']    ||= 'git.pogoapp.com'
 
 # resolve bin path, ignoring symlinks
@@ -19,4 +18,5 @@ Heroku::Updater.disable("`heroku update` is only available from Heroku Toolbelt.
 
 # start up the CLI
 require "heroku/cli"
+Heroku.user_agent = "heroku-gem/#{Heroku::VERSION} (#{RUBY_PLATFORM}) ruby/#{RUBY_VERSION}"
 Heroku::CLI.start(*ARGV)

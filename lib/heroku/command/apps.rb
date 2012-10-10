@@ -175,7 +175,7 @@ class Heroku::Command::Apps < Heroku::Command::Base
   # $ heroku apps:create myapp-staging --remote staging
   #
   def create
-    name    = shift_argument || options[:app]
+    name    = shift_argument || options[:app] || ENV['HEROKU_APP']
     validate_arguments!
 
     info    = api.post_app({ "name" => name, "stack" => options[:stack] }).body
@@ -206,7 +206,7 @@ class Heroku::Command::Apps < Heroku::Command::Base
 
       hputs([ info["web_url"], info["git_url"] ].join(" | "))
     rescue Timeout::Error
-      hputs("Timed Out! Check heroku status for known issues.")
+      hputs("Timed Out! Run `heroku status` to check for known platform issues.")
     end
 
     unless options[:no_remote].is_a? FalseClass

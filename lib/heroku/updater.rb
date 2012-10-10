@@ -5,8 +5,8 @@ require 'heroku/helpers'
 module Heroku
   module Updater
 
-    def self.autoupdating_path
-      File.join(Heroku::Helpers.home_directory, ".heroku", "autoupdating")
+    def self.updating_lock_path
+      File.join(Heroku::Helpers.home_directory, ".heroku", "updating")
     end
 
     def self.installed_client_path
@@ -47,67 +47,72 @@ module Heroku
       end
     end
 
-    def self.update(url, autoupdate=false)
-      if ENV['HEROKU_AUTOUPDATE'] == 'true'
-        if File.exists?(autoupdating_path)
-          Heroku::Helpers.error('autoupdate in progress')
+    def self.wait_for_lock(path, wait_for=5, check_every=0.5)
+      start = Time.now.to_i
+      while File.exists?(path)
+        sleep check_every
+        if (Time.now.to_i - start) > wait_for
+          Heroku::Helpers.error "Unable to acquire update lock"
         end
       end
+      begin
+        FileUtils.touch path
+        ret = yield
+      ensure
+        FileUtils.rm_f path
+      end
+      ret
+    end
 
-      require "excon"
-      require "heroku"
-      require "tmpdir"
-      require "zip/zip"
+    def self.autoupdate?
+      true
+    end
 
-      latest_version = Heroku::Helpers.json_decode(Excon.get('http://rubygems.org/api/v1/gems/heroku.json', :nonblock => false).body)['version']
+    def self.update(url, autoupdate=false)
+      wait_for_lock(updating_lock_path, 5) do
+        require "excon"
+        require "heroku"
+        require "heroku/excon"
+        require "tmpdir"
+        require "zip/zip"
 
-      if compare_versions(latest_version, latest_local_version) > 0
-        Dir.mktmpdir do |download_dir|
+        latest_version = Excon.get_with_redirect("http://assets.heroku.com/heroku-client/VERSION", :nonblock => false).body.chomp
 
-          # follow redirect, if one exists
-          headers = Excon.head(
-            url,
-            :headers => {
-              'User-Agent' => Heroku.user_agent
-            },
-            :nonblack => false
-          ).headers
-          if headers['Location']
-            url = headers['Location']
-          end
-
-          File.open("#{download_dir}/heroku.zip", "wb") do |file|
-            file.print Excon.get(url, :nonblock => false).body
-          end
-
-          Zip::ZipFile.open("#{download_dir}/heroku.zip") do |zip|
-            zip.each do |entry|
-              target = File.join(download_dir, entry.to_s)
-              FileUtils.mkdir_p File.dirname(target)
-              zip.extract(entry, target) { true }
+        if compare_versions(latest_version, latest_local_version) > 0
+          Dir.mktmpdir do |download_dir|
+            File.open("#{download_dir}/heroku.zip", "wb") do |file|
+              file.print Excon.get_with_redirect(url, :nonblock => false).body
             end
+
+            Zip::ZipFile.open("#{download_dir}/heroku.zip") do |zip|
+              zip.each do |entry|
+                target = File.join(download_dir, entry.to_s)
+                FileUtils.mkdir_p File.dirname(target)
+                zip.extract(entry, target) { true }
+              end
+            end
+
+            FileUtils.rm "#{download_dir}/heroku.zip"
+
+            old_version = latest_local_version
+            new_version = client_version_from_path(download_dir)
+
+            if compare_versions(new_version, old_version) < 0 && !autoupdate
+              Heroku::Helpers.error("Installed version (#{old_version}) is newer than the latest available update (#{new_version})")
+            end
+
+            FileUtils.rm_rf updated_client_path
+            FileUtils.mkdir_p File.dirname(updated_client_path)
+            FileUtils.cp_r  download_dir, updated_client_path
+
+            new_version
           end
-
-          FileUtils.rm "#{download_dir}/heroku.zip"
-
-          old_version = latest_local_version
-          new_version = client_version_from_path(download_dir)
-
-          if compare_versions(new_version, old_version) < 0 && !autoupdate
-            Heroku::Helpers.error("Installed version (#{old_version}) is newer than the latest available update (#{new_version})")
-          end
-
-          FileUtils.rm_rf updated_client_path
-          FileUtils.mkdir_p File.dirname(updated_client_path)
-          FileUtils.cp_r  download_dir, updated_client_path
-
-          new_version
+        else
+          false # already up to date
         end
-      else
-        false # already up to date
       end
     ensure
-      FileUtils.rm_f(autoupdating_path)
+      FileUtils.rm_f(updating_lock_path)
     end
 
     def self.compare_versions(first_version, second_version)
@@ -130,29 +135,27 @@ module Heroku
       background_update!
     end
 
-    def self.autoupdate?
-      !@disable && File.exists?(File.join(Heroku::Helpers.home_directory, ".heroku", "autoupdate"))
+    def self.last_autoupdate_path
+      File.join(Heroku::Helpers.home_directory, ".heroku", "autoupdate.last")
     end
 
     def self.background_update!
-      # default autoupdate for users with no plugins who haven't updated before
-      unless File.exists?(File.join(Heroku::Helpers.home_directory, '.heroku'))
-        FileUtils.mkdir_p(File.join(Heroku::Helpers.home_directory, '.heroku'))
-        FileUtils.touch(File.join(Heroku::Helpers.home_directory, '.heroku', 'autoupdate'))
+      # if we've updated in the last 300 seconds, dont try again
+      if File.exists?(last_autoupdate_path)
+        return if (Time.now.to_i - File.mtime(last_autoupdate_path).to_i) < 300
       end
-      if autoupdate? && !File.exists?(autoupdating_path)
-        FileUtils.touch(autoupdating_path)
-        log_path = File.join(Heroku::Helpers.home_directory, '.heroku', 'autoupdate.log')
-        pid = if defined?(RUBY_VERSION) and RUBY_VERSION =~ /^1\.8\.\d+/
-          fork do
-            ENV['HEROKU_AUTOUPDATE'] = 'true'
-            exec("heroku update &> #{log_path}")
-          end
-        else
-          spawn(ENV.to_hash.merge({'HEROKU_AUTOUPDATE' => 'true'}), "heroku update", {:err => :out, :out => log_path})
+      log_path = File.join(Heroku::Helpers.home_directory, '.heroku', 'autoupdate.log')
+      FileUtils.mkdir_p File.dirname(log_path)
+      pid = if defined?(RUBY_VERSION) and RUBY_VERSION =~ /^1\.8\.\d+/
+        fork do
+          exec("heroku update &> #{log_path} 2>&1")
         end
-        Process.detach(pid)
+      else
+        spawn("heroku update", {:err => log_path, :out => log_path})
       end
+      Process.detach(pid)
+      FileUtils.mkdir_p File.dirname(last_autoupdate_path)
+      FileUtils.touch last_autoupdate_path
     end
   end
 end

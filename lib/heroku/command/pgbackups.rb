@@ -67,12 +67,14 @@ module Heroku::Command
     #
     # if no DATABASE is specified, defaults to DATABASE_URL
     #
-    # -e, --expire  # if no slots are available to capture, destroy the oldest backup to make room
+    # -e, --expire  # if no slots are available, destroy the oldest manual backup to make room
     #
     def capture
-      from_name, from_url = hpg_resolve(shift_argument, "DATABASE_URL")
+      attachment = hpg_resolve(shift_argument, "DATABASE_URL")
       validate_arguments!
 
+      from_name = attachment.display_name
+      from_url  = attachment.url
       to_url    = nil # server will assign
       to_name   = "BACKUP"
 
@@ -103,13 +105,19 @@ module Heroku::Command
     #
     def restore
       if 0 == args.size
-        to_name, to_url = hpg_resolve(nil, "DATABASE_URL")
+        attachment = hpg_resolve(nil, "DATABASE_URL")
+        to_name = attachment.display_name
+        to_url  = attachment.url
         backup_id = :latest
       elsif 1 == args.size
-        to_name, to_url = hpg_resolve(shift_argument)
+        attachment = hpg_resolve(shift_argument)
+        to_name = attachment.display_name
+        to_url  = attachment.url
         backup_id = :latest
       else
-        to_name, to_url = hpg_resolve(shift_argument)
+        attachment = hpg_resolve(shift_argument)
+        to_name = attachment.display_name
+        to_url  = attachment.url
         backup_id = shift_argument
       end
 
@@ -195,6 +203,13 @@ module Heroku::Command
       pgbackup_client.create_transfer(from_url, from_name, to_url, to_name, opts)
     end
 
+    def poll_error(app)
+      error <<-EOM
+Failed to query the PGBackups status API. Your backup may still be running.
+Verify the status of your backup with `heroku pgbackups -a #{app}`
+      EOM
+    end
+
     def poll_transfer!(transfer)
       display "\n"
 
@@ -209,12 +224,17 @@ module Heroku::Command
         update_display(transfer)
         break if transfer["finished_at"]
 
-        attempts = 0
+        sleep_time = 1
         begin
-          sleep 1
+          sleep(sleep_time)
           transfer = pgbackup_client.get_transfer(transfer["id"])
         rescue RestClient::ServiceUnavailable
-          (attempts += 1) <= 5 ? retry : raise
+          if sleep_time > 300
+            poll_error(app)
+          else
+            sleep_time *= 2
+            retry
+          end
         end
       end
 

@@ -115,20 +115,12 @@ module Heroku
       if args.include?('-h') || args.include?('--help')
         args.unshift(cmd) unless cmd =~ /^-.*/
         cmd = 'help'
-        command = parse('help')
+        command = parse(cmd)
       end
 
-      unless command
-        if cmd == '--version'
-          cmd = 'version'
-          command = parse(cmd)
-        else
-          error([
-            "`#{cmd}` is not a heroku command.",
-            suggestion(cmd, commands.keys + command_aliases.keys),
-            "See `heroku help` for a list of available commands."
-          ].compact.join("\n"))
-        end
+      if cmd == '--version'
+        cmd = 'version'
+        command = parse(cmd)
       end
 
       @current_command = cmd
@@ -141,7 +133,7 @@ module Heroku
         # remove OptionParsers Officious['version'] to avoid conflicts
         # see: https://github.com/ruby/ruby/blob/trunk/lib/optparse.rb#L814
         parser.base.long.delete('version')
-        (global_options + command[:options]).each do |option|
+        (global_options + (command && command[:options] || [])).each do |option|
           parser.on(*option[:args]) do |value|
             if option[:proc]
               option[:proc].call(value)
@@ -173,16 +165,39 @@ module Heroku
       @current_options = opts
       @invalid_arguments = invalid_options
 
-      command_instance = command[:klass].new(args.dup, opts.dup)
-
       @anonymous_command = [ARGV.first, *@anonymized_args].join(' ')
-
-      if !@normalized_args.include?('--app _') && (implied_app = command_instance.app rescue nil)
-        @normalized_args << '--app _'
+      begin
+        usage_directory = "#{home_directory}/.heroku/usage"
+        FileUtils.mkdir_p(usage_directory)
+        usage_file = usage_directory << "/#{Heroku::VERSION}"
+        usage = if File.exists?(usage_file)
+          json_decode(File.read(usage_file))
+        else
+          {}
+        end
+        usage[@anonymous_command] ||= 0
+        usage[@anonymous_command] += 1
+        File.write(usage_file, json_encode(usage) + "\n")
+      rescue
+        # usage writing is not important, allow failures
       end
-      @normalized_command = [ARGV.first, @normalized_args.sort_by {|arg| arg.gsub('-', '')}].join(' ')
 
-      [ command_instance, command[:method] ]
+      if command
+        command_instance = command[:klass].new(args.dup, opts.dup)
+
+        if !@normalized_args.include?('--app _') && (implied_app = command_instance.app rescue nil)
+          @normalized_args << '--app _'
+        end
+        @normalized_command = [ARGV.first, @normalized_args.sort_by {|arg| arg.gsub('-', '')}].join(' ')
+
+        [ command_instance, command[:method] ]
+      else
+        error([
+          "`#{cmd}` is not a heroku command.",
+          suggestion(cmd, commands.keys + command_aliases.keys),
+          "See `heroku help` for a list of available commands."
+        ].compact.join("\n"))
+      end
     end
 
     def self.run(cmd, arguments=[])
@@ -233,6 +248,12 @@ module Heroku
       error e.message
     rescue OptionParser::ParseError
       commands[cmd] ? run("help", [cmd]) : run("help")
+    rescue Excon::Errors::SocketError => e
+      if e.message == 'getaddrinfo: nodename nor servname provided, or not known (SocketError)'
+        error("Unable to connect to Heroku API, please check internet connectivity and try again.")
+      else
+        raise(e)
+      end
     ensure
       display_warnings
     end
@@ -242,7 +263,7 @@ module Heroku
     end
 
     def self.extract_error(body, options={})
-      default_error = block_given? ? yield : "Internal server error.\nRun 'heroku status' to check for known platform issues."
+      default_error = block_given? ? yield : "Internal server error.\nRun `heroku status` to check for known platform issues."
       parse_error_xml(body) || parse_error_json(body) || parse_error_plain(body) || default_error
     end
 
